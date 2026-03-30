@@ -14,7 +14,7 @@ interface OTPData {
   createdAt: number;
 }
 
-const OTP_EXPIRATION_TIME = 15 * 60 * 1000; // 15 minutes in milliseconds
+const OTP_EXPIRATION_TIME = 15 * 60 * 1000; // 15 minutes
 const MAX_ATTEMPTS = 3;
 const OTP_STORAGE_KEY = 'luxcod-otp-data';
 
@@ -26,49 +26,46 @@ export const generateOTP = (): string => {
 };
 
 /**
- * Create and store OTP data with expiration
+ * Create OTP and store it in sessionStorage
  */
-export const createOTP = (email: string): OTPData => {
+export const createOTP = (): OTPData => {
   const code = generateOTP();
   const expiresAt = Date.now() + OTP_EXPIRATION_TIME;
   const createdAt = Date.now();
-  
+
   const otpData: OTPData = {
     code,
-    email,
+    email: 'luxcode3@gmail.com', // ثابت على بريد الأدمن
     expiresAt,
     attempts: 0,
     maxAttempts: MAX_ATTEMPTS,
     createdAt
   };
-  
-  // Store in sessionStorage (cleared when browser closes)
+
   if (typeof window !== 'undefined') {
     sessionStorage.setItem(OTP_STORAGE_KEY, JSON.stringify(otpData));
   }
-  
+
   return otpData;
 };
 
 /**
- * Get stored OTP data
+ * Get stored OTP
  */
 export const getOTPData = (): OTPData | null => {
   if (typeof window === 'undefined') return null;
-  
   const data = sessionStorage.getItem(OTP_STORAGE_KEY);
   if (!data) return null;
-  
+
   try {
     return JSON.parse(data);
-  } catch (error) {
-    console.error('Error parsing OTP data:', error);
+  } catch {
     return null;
   }
 };
 
 /**
- * Check if OTP is expired
+ * Check OTP expiration
  */
 export const isOTPExpired = (otpData: OTPData | null): boolean => {
   if (!otpData) return true;
@@ -76,73 +73,34 @@ export const isOTPExpired = (otpData: OTPData | null): boolean => {
 };
 
 /**
- * Get remaining time in milliseconds
- */
-export const getOTPRemainingTime = (otpData: OTPData | null): number => {
-  if (!otpData) return 0;
-  const remaining = otpData.expiresAt - Date.now();
-  return remaining > 0 ? remaining : 0;
-};
-
-/**
- * Format remaining time as MM:SS
- */
-export const formatOTPTime = (milliseconds: number): string => {
-  const totalSeconds = Math.floor(milliseconds / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-};
-
-/**
  * Send OTP via EmailJS
  */
-export const sendOTPEmail = async (email: string, otp: string): Promise<{ success: boolean; message: string }> => {
+export const sendOTPEmail = async (otpData: OTPData): Promise<{ success: boolean; message: string }> => {
   try {
-    if (!emailjs) {
-      throw new Error('EmailJS not initialized');
-    }
+    if (!emailjs) throw new Error('EmailJS not initialized');
 
-    // Ensure OTP is a string and not empty
-    const verificationCode = String(otp);
-    if (!verificationCode || verificationCode.length !== 6) {
-      throw new Error('Invalid OTP code generated');
-    }
-
-    // Fixed variables according to user requirements
     const templateParams = {
-      to_email: "luxcode3@gmail.com",
-      verification_code: verificationCode,
-      admin_name: "Admin"
+      to_email: otpData.email,
+      verification_code: otpData.code,
+      admin_name: 'Admin'
     };
 
-    console.log('Sending OTP email with params:', templateParams);
-
-    // Using direct values to ensure no configuration mismatch
     const response = await emailjs.send(
-      "service_tllf68q",
-      "template_adpgkak",
+      'service_tllf68q',
+      'template_adpgkak',
       templateParams,
-      "njvn9St5gAnWLOI61"
+      'njvn9St5gAnWLOI61'
     );
 
-    console.log('EmailJS response:', response);
-
     if (response.status === 200) {
-      return {
-        success: true,
-        message: 'تم إرسال رمز التحقق إلى بريد الأدمن'
-      };
+      return { success: true, message: 'تم إرسال رمز التحقق إلى بريد الأدمن' };
     } else {
       throw new Error(`EmailJS returned status ${response.status}`);
     }
   } catch (error) {
     console.error('Error sending OTP email:', error);
-    const errorMessage = error instanceof Error ? error.message : 'حدث خطأ في إرسال البريد الإلكتروني';
-    return {
-      success: false,
-      message: `خطأ: ${errorMessage}`
-    };
+    const message = error instanceof Error ? error.message : 'حدث خطأ في إرسال البريد الإلكتروني';
+    return { success: false, message };
   }
 };
 
@@ -151,75 +109,32 @@ export const sendOTPEmail = async (email: string, otp: string): Promise<{ succes
  */
 export const verifyOTP = (code: string): { valid: boolean; message: string } => {
   const otpData = getOTPData();
-  
-  if (!otpData) {
-    return { valid: false, message: 'لم يتم طلب رمز تحقق' };
-  }
-  
+  if (!otpData) return { valid: false, message: 'لم يتم طلب رمز تحقق' };
+
   if (isOTPExpired(otpData)) {
     clearOTP();
     return { valid: false, message: 'انتهت صلاحية الرمز. يرجى طلب رمز جديد' };
   }
-  
+
   if (otpData.attempts >= otpData.maxAttempts) {
     clearOTP();
     return { valid: false, message: 'تم تجاوز عدد المحاولات المسموحة. يرجى طلب رمز جديد' };
   }
-  
+
   if (code.trim() !== otpData.code) {
-    // Increment attempts
     otpData.attempts += 1;
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem(OTP_STORAGE_KEY, JSON.stringify(otpData));
-    }
-    
-    const remainingAttempts = otpData.maxAttempts - otpData.attempts;
-    return {
-      valid: false,
-      message: `رمز غير صحيح. محاولات متبقية: ${remainingAttempts}`
-    };
+    if (typeof window !== 'undefined') sessionStorage.setItem(OTP_STORAGE_KEY, JSON.stringify(otpData));
+    const remaining = otpData.maxAttempts - otpData.attempts;
+    return { valid: false, message: `رمز غير صحيح. محاولات متبقية: ${remaining}` };
   }
-  
-  // OTP is valid
+
   clearOTP();
   return { valid: true, message: 'تم التحقق بنجاح' };
 };
 
 /**
- * Clear OTP data
+ * Clear OTP
  */
 export const clearOTP = (): void => {
-  if (typeof window !== 'undefined') {
-    sessionStorage.removeItem(OTP_STORAGE_KEY);
-  }
-};
-
-/**
- * Get OTP status information
- */
-export const getOTPStatus = () => {
-  const otpData = getOTPData();
-  
-  if (!otpData) {
-    return {
-      exists: false,
-      expired: true,
-      remainingTime: 0,
-      remainingAttempts: 0,
-      formattedTime: '00:00'
-    };
-  }
-  
-  const expired = isOTPExpired(otpData);
-  const remainingTime = getOTPRemainingTime(otpData);
-  const remainingAttempts = otpData.maxAttempts - otpData.attempts;
-  
-  return {
-    exists: true,
-    expired,
-    remainingTime,
-    remainingAttempts,
-    formattedTime: formatOTPTime(remainingTime),
-    email: otpData.email
-  };
+  if (typeof window !== 'undefined') sessionStorage.removeItem(OTP_STORAGE_KEY);
 };
